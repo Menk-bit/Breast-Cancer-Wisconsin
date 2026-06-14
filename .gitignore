@@ -3,3 +3,12 @@ __pycache__/
 *.pyc
 .DS_Store
 .ipynb_checkpoints/
+
+
+EOF 
+
+# Preprocess generated CSV files
+Preprocess/*.csv
+
+# Preprocess generated CSV files
+Preprocess/*.csv
