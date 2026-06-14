@@ -1,0 +1,7 @@
+.venv/
+score/
+src/svm.py
+src/neuron_network.py
+src/svm1.py
+src/svm2.py
+svm_comparison.png
