@@ -17,6 +17,7 @@ src/svm2.py
 svm_comparison.png
 seer_cvm_sgd_rbf_max_f1_outputs/
 seer_svm_full_experiment_outputs.csv
+tree_ensemble_outputs/
 src/seer_loss_outputs/
 src/test.py
 src/neuron_network_new_data.py

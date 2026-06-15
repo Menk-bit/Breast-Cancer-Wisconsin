@@ -22,3 +22,21 @@ experiment suites select either the scaled or tree-ready file as appropriate.
 The original `KNN/` and `Logistic/` folders are retained as legacy Wisconsin
 dataset implementations; use `KNN new/` and `Logistic new/` for the root SEER
 dataset.
+
+## Random Forest and XGBoost
+
+Train and evaluate both tree ensemble models on the local tree-ready dataset:
+
+```powershell
+python src/tree_ensemble_models.py
+```
+
+The command uses stratified train, validation, and test sets. It writes model
+files, metrics, classification reports, test predictions, and feature
+importance tables to `tree_ensemble_outputs/`.
+
+For a faster smoke run:
+
+```powershell
+python src/tree_ensemble_models.py --sample-size 20000
+```
