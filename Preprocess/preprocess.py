@@ -4,7 +4,7 @@ preprocess.py
 Clinical preprocessing for SEER-like breast cancer registry data.
 
 Input:
-    - export.csv or exports.csv in the same folder as this script
+    - export.csv or export_demo.csv
 
 Output:
     - preprocessed_breast_cancer.csv
@@ -15,12 +15,11 @@ Main principles:
     3. Merge variables that describe the same clinical concept but use different coding eras:
        - grade_2018 + grade_thru_2017 -> grade_unified
        - surgery_1998_2022 + surgery_2023 -> surgery_code_unified
-    4. Do not use Vital status or Survival months as input features.
-       They are outcome variables:
-       - event_dead: 1 = Dead, 0 = Alive
-       - survival_months_int: follow-up / survival duration
-    5. This script produces a cleaned clinical feature table, not one-hot encoded final model matrix.
-       One-hot encoding should be done later inside a train/test pipeline to avoid leakage.
+    4. Do not use Vital status or Survival months.
+       They are removed from the processed output.
+    5. The target variable is:
+       - survive_after_5: 1 = survive after 5 years, 0 = not survive after 5 years
+    6. This script produces a cleaned clinical feature table, not one-hot encoded final model matrix.
 """
 
 from __future__ import annotations
@@ -37,7 +36,10 @@ import pandas as pd
 # CONFIG
 # ============================================================
 
-INPUT_CANDIDATES = [Path("/Users/minhdt/Desktop/ML Breast/export_demo.csv")]
+INPUT_CANDIDATES = [
+    Path("/Users/minhdt/Desktop/ML Breast/Preprocess/final_demo.csv"),
+]
+
 OUTPUT_PATH = Path("preprocessed_breast_cancer.csv")
 
 
@@ -60,9 +62,9 @@ RAW_TO_CLEAN_COLUMNS = {
     "RX Summ--Surg Prim Site 2023 (2023+)": "surgery_2023_raw",
     "Chemotherapy recode (yes, no/unk)": "chemotherapy_raw",
     "Radiation recode": "radiation_raw",
-    "Vital status recode (study cutoff used)": "vital_status_raw",
-    "Survival months": "survival_months_raw",
+    "survive_after_5": "survive_after_5_raw",
 }
+
 
 UNKNOWN_LIKE_VALUES = {
     "",
@@ -86,6 +88,7 @@ def find_input_file() -> Path:
     for path in INPUT_CANDIDATES:
         if path.exists():
             return path
+
     candidates = ", ".join(str(p) for p in INPUT_CANDIDATES)
     raise FileNotFoundError(f"Cannot find input file. Expected one of: {candidates}")
 
@@ -99,10 +102,12 @@ def load_raw_data(path: Path) -> pd.DataFrame:
 
 def rename_columns(df: pd.DataFrame) -> pd.DataFrame:
     missing = [col for col in RAW_TO_CLEAN_COLUMNS if col not in df.columns]
+
     if missing:
         raise ValueError(
             "Missing expected columns:\n" + "\n".join(f"- {col}" for col in missing)
         )
+
     return df.rename(columns=RAW_TO_CLEAN_COLUMNS)
 
 
@@ -149,6 +154,7 @@ def parse_age_midpoint(value: Any) -> float:
 
 def preprocess_age(s: pd.Series) -> pd.DataFrame:
     age_midpoint = s.apply(parse_age_midpoint)
+
     return pd.DataFrame({
         "age_group": s,
         "age_midpoint": age_midpoint,
@@ -159,6 +165,7 @@ def preprocess_age(s: pd.Series) -> pd.DataFrame:
 
 def preprocess_race(s: pd.Series) -> pd.DataFrame:
     race = s.replace({"": "Unknown", "Blank(s)": "Unknown"})
+
     return pd.DataFrame({
         "race": race,
         "race_unknown_flag": (race == "Unknown").astype(int),
@@ -192,7 +199,6 @@ def grade_from_text(value: Any) -> tuple[float, str]:
         num, group = grade_map[text]
         return float(num), group
 
-    # Example: category (M) is not safely ordinal without official codebook.
     return np.nan, "other_or_uncertain"
 
 
@@ -235,7 +241,9 @@ def preprocess_laterality(s: pd.Series) -> pd.DataFrame:
         "Only one side - side unspecified": "one_side_unspecified",
         "Bilateral, single primary": "bilateral_single_primary",
     }
+
     laterality = s.map(mapping).fillna("unknown")
+
     return pd.DataFrame({
         "laterality": laterality,
         "laterality_unknown_flag": laterality.isin([
@@ -357,6 +365,7 @@ def tumor_size_features(value: Any) -> dict[str, Any]:
         size = int(text)
         if 1 <= size <= 400:
             result["tumor_size_mm"] = float(size)
+
             if size <= 10:
                 group = "01_10_mm"
             elif size <= 20:
@@ -365,6 +374,7 @@ def tumor_size_features(value: Any) -> dict[str, Any]:
                 group = "21_50_mm"
             else:
                 group = "gt_50_mm"
+
             result["tumor_size_group"] = group
             return result
 
@@ -394,8 +404,6 @@ def parse_node_code(value: Any, column_type: str) -> dict[str, Any]:
 
     code = int(text)
 
-    # Conservative handling: exact counts are only 00-89 and 90.
-    # Codes 95-99 are special registry codes and should not be interpreted as counts.
     if 0 <= code <= 90:
         result[f"{column_type}_count"] = float(code)
         return result
@@ -411,8 +419,17 @@ def parse_node_code(value: Any, column_type: str) -> dict[str, Any]:
 
 
 def preprocess_nodes(df: pd.DataFrame) -> pd.DataFrame:
-    pos = df["nodes_positive_raw"].apply(lambda x: parse_node_code(x, "nodes_positive")).apply(pd.Series)
-    examined = df["nodes_examined_raw"].apply(lambda x: parse_node_code(x, "nodes_examined")).apply(pd.Series)
+    pos = (
+        df["nodes_positive_raw"]
+        .apply(lambda x: parse_node_code(x, "nodes_positive"))
+        .apply(pd.Series)
+    )
+
+    examined = (
+        df["nodes_examined_raw"]
+        .apply(lambda x: parse_node_code(x, "nodes_examined"))
+        .apply(pd.Series)
+    )
 
     out = pd.concat([pos, examined], axis=1)
 
@@ -426,6 +443,7 @@ def preprocess_nodes(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     out["nodes_ratio_unknown_flag"] = out["nodes_positive_ratio"].isna().astype(int)
+
     return out
 
 
@@ -512,6 +530,7 @@ def preprocess_surgery(df: pd.DataFrame) -> pd.DataFrame:
 
 def preprocess_chemotherapy(s: pd.Series) -> pd.DataFrame:
     clean = s.replace({"": "No/Unknown", "Blank(s)": "No/Unknown"})
+
     return pd.DataFrame({
         "chemotherapy_status": clean,
         "chemotherapy_yes_flag": (clean == "Yes").astype(int),
@@ -553,16 +572,20 @@ def preprocess_radiation(s: pd.Series) -> pd.DataFrame:
     })
 
 
-def preprocess_outcome(df: pd.DataFrame) -> pd.DataFrame:
-    event_dead = df["vital_status_raw"].map({"Dead": 1, "Alive": 0}).astype("Int64")
-    survival_months = pd.to_numeric(df["survival_months_raw"], errors="coerce")
+def preprocess_survive_after_5(df: pd.DataFrame) -> pd.DataFrame:
+    target = pd.to_numeric(df["survive_after_5_raw"], errors="coerce").astype("Int64")
+
+    invalid_values = target.dropna()[~target.dropna().isin([0, 1])]
+
+    if len(invalid_values) > 0:
+        raise ValueError(
+            "Cột survive_after_5 chỉ được chứa 0 hoặc 1. "
+            f"Phát hiện giá trị không hợp lệ: {invalid_values.unique().tolist()}"
+        )
 
     return pd.DataFrame({
-        "event_dead": event_dead,
-        "survival_months_int": survival_months.astype("Int64"),
-        "survival_months_unknown_flag": survival_months.isna().astype(int),
-        "alive_censored_flag": (event_dead == 0).astype(int),
-    })
+        "survive_after_5": target,
+    }, index=df.index)
 
 
 # ============================================================
@@ -585,12 +608,13 @@ def preprocess(df: pd.DataFrame) -> pd.DataFrame:
         preprocess_surgery(df),
         preprocess_chemotherapy(df["chemotherapy_raw"]),
         preprocess_radiation(df["radiation_raw"]),
-        preprocess_outcome(df),
+        preprocess_survive_after_5(df),
     ]
 
     processed = pd.concat(parts, axis=1)
 
-    # Keep raw values that are useful for auditing/debugging but not recommended as model inputs.
+    # Keep raw values that are useful for auditing/debugging.
+    # Vital status and Survival months are intentionally not kept.
     audit_cols = [
         "grade_2018_raw",
         "grade_thru_2017_raw",
@@ -600,9 +624,8 @@ def preprocess(df: pd.DataFrame) -> pd.DataFrame:
         "nodes_examined_raw",
         "surgery_1998_2022_raw",
         "surgery_2023_raw",
-        "vital_status_raw",
-        "survival_months_raw",
     ]
+
     processed = pd.concat([processed, df[audit_cols]], axis=1)
 
     return processed
@@ -617,8 +640,15 @@ def print_summary(raw_df: pd.DataFrame, processed_df: pd.DataFrame, input_path: 
     print(f"Output file: {OUTPUT_PATH.resolve()}")
     print(f"Output shape: {processed_df.shape[0]} rows x {processed_df.shape[1]} columns")
 
-    print("\nOutcome distribution:")
-    print(processed_df["event_dead"].value_counts(dropna=False).rename(index={0: "Alive", 1: "Dead"}))
+    print("\nTarget distribution:")
+    print(
+        processed_df["survive_after_5"]
+        .value_counts(dropna=False)
+        .rename(index={
+            0: "Not survive after 5 years",
+            1: "Survive after 5 years",
+        })
+    )
 
     print("\nKey missing / unknown flags:")
     flags = [
@@ -631,15 +661,38 @@ def print_summary(raw_df: pd.DataFrame, processed_df: pd.DataFrame, input_path: 
         "surgery_unknown_flag",
         "chemotherapy_no_or_unknown_flag",
         "radiation_uncertain_flag",
-        "survival_months_unknown_flag",
     ]
+
     for col in flags:
         if col in processed_df.columns:
             rate = processed_df[col].mean() * 100
             print(f"- {col}: {rate:.2f}%")
 
+    forbidden_cols = [
+        "event_dead",
+        "survival_months_int",
+        "survival_months_unknown_flag",
+        "alive_censored_flag",
+        "vital_status_raw",
+        "survival_months_raw",
+    ]
+
+    existing_forbidden_cols = [
+        col for col in forbidden_cols
+        if col in processed_df.columns
+    ]
+
+    print("\nLeakage check:")
+    if existing_forbidden_cols:
+        print("WARNING: These forbidden columns still exist:")
+        for col in existing_forbidden_cols:
+            print(f"- {col}")
+    else:
+        print("- OK: Vital status and Survival months are not in processed output.")
+
     print("\nImportant warning:")
-    print("- event_dead and survival_months_int are outcome variables, not input features.")
+    print("- survive_after_5 is the target variable, not an input feature.")
+    print("- Vital status and Survival months are intentionally not used in the processed output.")
     print("- treatment variables can cause temporal leakage if prediction time is before treatment.")
     print("- perform imputation / one-hot encoding inside the train/test pipeline, not before splitting.")
 
@@ -648,7 +701,9 @@ def main() -> None:
     input_path = find_input_file()
     raw_df = load_raw_data(input_path)
     processed_df = preprocess(raw_df)
+
     processed_df.to_csv(OUTPUT_PATH, index=False, encoding="utf-8-sig")
+
     print_summary(raw_df, processed_df, input_path)
 
 

@@ -1,14 +1,14 @@
 import csv
+import random
 from pathlib import Path
 
 INPUT_PATH = Path("/Users/minhdt/Desktop/ML Breast/Preprocess/export.csv")
-OUTPUT_PATH = Path("/Users/minhdt/Desktop/ML Breast/Preprocess/export_alive_>120.csv")
+OUTPUT_PATH = Path("/Users/minhdt/Desktop/ML Breast/Preprocess/final_demo.csv")
 
 VITAL_STATUS_COL = "Vital status recode (study cutoff used)"
 SURVIVAL_MONTHS_COL = "Survival months"
 
-TARGET_STATUS = "Alive"
-MIN_SURVIVAL_MONTHS = 120
+N_ROWS = 200_000
 
 def find_column_index(header, column_name):
     if column_name in header:
@@ -20,13 +20,7 @@ def find_column_index(header, column_name):
     if normalized_col in normalized_header:
         return normalized_header.index(normalized_col)
 
-    raise ValueError(
-        f"Không tìm thấy cột '{column_name}'.\n"
-        f"Các cột hiện có là:\n{header}"
-    )
-
-def is_dead(value):
-    return str(value).strip().lower() == TARGET_STATUS.lower()
+    raise ValueError(f"Không tìm thấy cột '{column_name}'")
 
 def parse_survival_months(value):
     try:
@@ -39,21 +33,16 @@ def main():
         raise FileNotFoundError(f"Không tìm thấy file: {INPUT_PATH.resolve()}")
 
     total_input_rows = 0
-    rows_written = 0
-    invalid_survival_months = 0
+    valid_rows = []
 
-    with open(INPUT_PATH, "r", encoding="utf-8", newline="") as infile, \
-         open(OUTPUT_PATH, "w", encoding="utf-8", newline="") as outfile:
-
+    with open(INPUT_PATH, "r", encoding="utf-8", newline="") as infile:
         reader = csv.reader(infile)
-        writer = csv.writer(outfile)
-
         header = next(reader)
-
+        
         vital_status_idx = find_column_index(header, VITAL_STATUS_COL)
         survival_months_idx = find_column_index(header, SURVIVAL_MONTHS_COL)
-
-        writer.writerow(header)
+        
+        header.append("survive_after_5")
 
         for row in reader:
             total_input_rows += 1
@@ -62,22 +51,38 @@ def main():
                 continue
 
             survival_months = parse_survival_months(row[survival_months_idx])
+            vital_status = str(row[vital_status_idx]).strip().lower()
 
             if survival_months is None:
-                invalid_survival_months += 1
                 continue
 
-            if is_dead(row[vital_status_idx]) and survival_months > MIN_SURVIVAL_MONTHS:
-                writer.writerow(row)
-                rows_written += 1
+            if survival_months >= 60:
+                survive_after_5 = 1
+            else:
+                if vital_status == "alive":
+                    continue
+                elif vital_status == "dead":
+                    survive_after_5 = 0
+                else:
+                    continue
 
-    print("=" * 80)
+            row.append(survive_after_5)
+            valid_rows.append(row)
+
+    sample_size = min(N_ROWS, len(valid_rows))
+    sampled_rows = random.sample(valid_rows, sample_size)
+
+    with open(OUTPUT_PATH, "w", encoding="utf-8", newline="") as outfile:
+        writer = csv.writer(outfile)
+        writer.writerow(header)
+        writer.writerows(sampled_rows)
+
+    print("=" * 60)
     print(f"Created: {OUTPUT_PATH.resolve()}")
-    print(f"Total input data rows scanned: {total_input_rows}")
-    print(f"Rows written to file: {rows_written}")
-    print(f"Total rows including header: {rows_written + 1}")
-    print(f"Invalid Survival months rows skipped: {invalid_survival_months}")
-    print("=" * 80)
+    print(f"Total input rows scanned: {total_input_rows}")
+    print(f"Total valid rows before sampling: {len(valid_rows)}")
+    print(f"Rows written to file: {sample_size}")
+    print("=" * 60)
 
 if __name__ == "__main__":
     main()
