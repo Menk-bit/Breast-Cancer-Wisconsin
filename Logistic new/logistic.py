@@ -22,20 +22,19 @@ from sklearn.metrics import (
 # CONFIG
 # =========================================================
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
 DATA_FILES = {
-    "all_valid": "/Users/minhdt/Desktop/ML Breast/Preprocess/model_ready_scaled_all_valid.csv",
-    "chart_selected": "/Users/minhdt/Desktop/ML Breast/Preprocess/model_ready_scaled_chart_selected.csv",
-    "clinical_selected": "/Users/minhdt/Desktop/ML Breast/Preprocess/model_ready_scaled_clinical_selected.csv",
+    "full": REPO_ROOT / "data" / "model_ready_scaled.csv",
 }
 
 # Chọn dataset để chạy:
 # "all_valid", "chart_selected", hoặc "clinical_selected"
-DATASET_NAME = "chart_selected"
+DATASET_NAME = "full"
 
-TARGET_COL = "event_dead"
+TARGET_COL = "survive_after_5"
 
 LEAKAGE_COLS = [
-    "event_dead",
+    "survive_after_5",
     "survival_months_int",
     "survival_months_unknown_flag",
 ]

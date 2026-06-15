@@ -16,16 +16,17 @@ from sklearn.ensemble import RandomForestClassifier
 # CONFIG
 # =========================================================
 
-TREE_FILE = Path("/Users/minhdt/Desktop/ML Breast/Preprocess/model_ready_tree.csv")
-SCALED_FILE = Path("/Users/minhdt/Desktop/ML Breast/Preprocess/model_ready_scaled.csv")
+REPO_ROOT = Path(__file__).resolve().parents[1]
+TREE_FILE = REPO_ROOT / "data" / "model_ready_tree.csv"
+SCALED_FILE = REPO_ROOT / "data" / "model_ready_scaled.csv"
 
 OUTPUT_DIR = Path("feature_selection_outputs")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
-TARGET_COL = "event_dead"
+TARGET_COL = "survive_after_5"
 
 LEAKAGE_COLS = [
-    "event_dead",
+    "survive_after_5",
     "survival_months_int",
     "survival_months_unknown_flag",
 ]

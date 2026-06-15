@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pandas as pd
 
 
@@ -5,18 +7,19 @@ import pandas as pd
 # CONFIG
 # =========================================================
 
-TREE_INPUT = "/Users/minhdt/Desktop/ML Breast/Preprocess/model_ready_tree.csv"
-SCALED_INPUT = "/Users/minhdt/Desktop/ML Breast/Preprocess/model_ready_scaled.csv"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+TREE_INPUT = REPO_ROOT / "data" / "model_ready_tree.csv"
+SCALED_INPUT = REPO_ROOT / "data" / "model_ready_scaled.csv"
 
 TARGET_COLS = [
-    "event_dead",
+    "survive_after_5",
     "survival_months_int",
     "survival_months_unknown_flag",
 ]
 
 # Các cột này không bao giờ dùng làm feature khi train Dead/Alive
 LEAKAGE_COLS = [
-    "event_dead",
+    "survive_after_5",
     "survival_months_int",
     "survival_months_unknown_flag",
 ]

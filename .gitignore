@@ -1,14 +1,25 @@
+.venv/
 venv/
 __pycache__/
 *.pyc
 .DS_Store
 .ipynb_checkpoints/
 
+# Datasets are supplied locally in the repository root.
+data/
 
-EOF 
-
-# Preprocess generated CSV files
+# Generated preprocessing and experiment artifacts.
 Preprocess/*.csv
-
-# Preprocess generated CSV files
-Preprocess/*.csv
+score/
+src/svm.py
+src/svm1.py
+src/svm2.py
+svm_comparison.png
+seer_cvm_sgd_rbf_max_f1_outputs/
+seer_svm_full_experiment_outputs.csv
+src/seer_loss_outputs/
+src/test.py
+src/neuron_network_new_data.py
+src/neuron_network.py
+src/svm_new_data.py
+src/cvm_sgd_rbf_max_f1_tuned_complete.py
