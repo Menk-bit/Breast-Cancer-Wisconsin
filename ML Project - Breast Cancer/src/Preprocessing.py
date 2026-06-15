@@ -13,7 +13,7 @@ from sklearn.model_selection import train_test_split
 
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = PROJECT_DIR / "ML Project - Breast Cancer" / "data"
+DATA_DIR = PROJECT_DIR / "data"
 DATA_PATHS = {
     "scaled": DATA_DIR / "model_ready_scaled.csv",
     "tree": DATA_DIR / "model_ready_tree.csv",
