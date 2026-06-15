@@ -11,21 +11,14 @@ import joblib
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import (
-    accuracy_score,
-    average_precision_score,
-    balanced_accuracy_score,
-    classification_report,
-    confusion_matrix,
-    f1_score,
-    precision_score,
-    recall_score,
-    roc_auc_score,
-)
-from sklearn.model_selection import train_test_split
 from sklearn.utils.class_weight import compute_sample_weight
 from xgboost import XGBClassifier
 
+from data_splitting import (
+    stratified_sample,
+    stratified_train_validation_test_split,
+)
+from metrics_utils import METRIC_COLUMNS, evaluate_scores, select_threshold
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATA_PATH = REPO_ROOT / "data" / "model_ready_tree.csv"
@@ -82,65 +75,9 @@ def load_data(
     if sample_size is not None and sample_size < len(X):
         if sample_size < 100:
             raise ValueError("--sample-size must be at least 100.")
-        X, _, y, _ = train_test_split(
-            X,
-            y,
-            train_size=sample_size,
-            stratify=y,
-            random_state=RANDOM_STATE,
-        )
+        X, y = stratified_sample(X, y, sample_size, RANDOM_STATE)
 
     return X.reset_index(drop=True), y.reset_index(drop=True)
-
-
-def split_data(X: pd.DataFrame, y: pd.Series) -> tuple:
-    X_train_val, X_test, y_train_val, y_test = train_test_split(
-        X,
-        y,
-        test_size=0.20,
-        stratify=y,
-        random_state=RANDOM_STATE,
-    )
-    X_train, X_valid, y_train, y_valid = train_test_split(
-        X_train_val,
-        y_train_val,
-        test_size=0.20,
-        stratify=y_train_val,
-        random_state=RANDOM_STATE + 1,
-    )
-    return X_train, X_valid, X_test, y_train, y_valid, y_test
-
-
-def select_threshold(y_true: pd.Series, probabilities: np.ndarray) -> float:
-    thresholds = np.linspace(0.10, 0.90, 161)
-    scores = [
-        balanced_accuracy_score(y_true, probabilities >= threshold)
-        for threshold in thresholds
-    ]
-    return float(thresholds[int(np.argmax(scores))])
-
-
-def calculate_metrics(
-    y_true: pd.Series, probabilities: np.ndarray, threshold: float
-) -> tuple[dict[str, float | int], np.ndarray]:
-    predictions = (probabilities >= threshold).astype(np.int8)
-    tn, fp, fn, tp = confusion_matrix(y_true, predictions, labels=[0, 1]).ravel()
-    metrics = {
-        "threshold": threshold,
-        "accuracy": accuracy_score(y_true, predictions),
-        "balanced_accuracy": balanced_accuracy_score(y_true, predictions),
-        "precision": precision_score(y_true, predictions, zero_division=0),
-        "recall": recall_score(y_true, predictions, zero_division=0),
-        "specificity": tn / (tn + fp) if tn + fp else 0.0,
-        "f1": f1_score(y_true, predictions, zero_division=0),
-        "roc_auc": roc_auc_score(y_true, probabilities),
-        "average_precision": average_precision_score(y_true, probabilities),
-        "true_negative": int(tn),
-        "false_positive": int(fp),
-        "false_negative": int(fn),
-        "true_positive": int(tp),
-    }
-    return metrics, predictions
 
 
 def build_models() -> dict[str, object]:
@@ -202,14 +139,6 @@ def save_model_outputs(
     ).sort_values("importance", ascending=False)
     importance.to_csv(model_dir / "feature_importance.csv", index=False)
 
-    report = classification_report(
-        y_test,
-        predictions,
-        target_names=["not_survive_5_years", "survive_5_years"],
-        digits=4,
-        zero_division=0,
-    )
-    (model_dir / "classification_report.txt").write_text(report, encoding="utf-8")
     (model_dir / "metrics.json").write_text(
         json.dumps(metrics, indent=2), encoding="utf-8"
     )
@@ -221,7 +150,8 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     X, y = load_data(args.data.resolve(), args.sample_size)
-    X_train, X_valid, X_test, y_train, y_valid, y_test = split_data(X, y)
+    split = stratified_train_validation_test_split(X, y, RANDOM_STATE)
+    X_train, X_valid, X_test, y_train, y_valid, y_test = split
     print(
         f"Loaded {len(X):,} rows and {X.shape[1]} features "
         f"(positive rate: {y.mean():.3f})."
@@ -244,9 +174,11 @@ def main() -> None:
         training_seconds = time.perf_counter() - start
 
         valid_probabilities = model.predict_proba(X_valid)[:, 1]
-        threshold = select_threshold(y_valid, valid_probabilities)
+        threshold, threshold_metrics = select_threshold(
+            y_valid, valid_probabilities
+        )
         test_probabilities = model.predict_proba(X_test)[:, 1]
-        metrics, predictions = calculate_metrics(
+        metrics, predictions = evaluate_scores(
             y_test, test_probabilities, threshold
         )
         metrics["training_seconds"] = training_seconds
@@ -263,15 +195,20 @@ def main() -> None:
             metrics,
             output_dir,
         )
+        threshold_metrics.to_csv(
+            output_dir / name / "validation_threshold_metrics.csv",
+            index=False,
+        )
         summary_rows.append({"model": name, **metrics})
         print(
-            f"balanced_accuracy={metrics['balanced_accuracy']:.4f}, "
-            f"f1={metrics['f1']:.4f}, roc_auc={metrics['roc_auc']:.4f}, "
+            f"accuracy={metrics['accuracy']:.4f}, "
+            f"f1_class_1={metrics['f1_class_1']:.4f}, "
+            f"roc_auc={metrics['roc_auc']:.4f}, "
             f"threshold={threshold:.3f}, time={training_seconds:.1f}s"
         )
 
     summary = pd.DataFrame(summary_rows).sort_values(
-        "balanced_accuracy", ascending=False
+        ["f1_class_1", "roc_auc"], ascending=False
     )
     summary.to_csv(output_dir / "model_comparison.csv", index=False)
     print(f"\nSaved results to {output_dir}")
@@ -279,12 +216,7 @@ def main() -> None:
         summary[
             [
                 "model",
-                "balanced_accuracy",
-                "precision",
-                "recall",
-                "specificity",
-                "f1",
-                "roc_auc",
+                *METRIC_COLUMNS,
             ]
         ].to_string(index=False)
     )

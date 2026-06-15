@@ -7,9 +7,10 @@ import pandas as pd
 # CONFIG
 # =========================================================
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-TREE_INPUT = REPO_ROOT / "data" / "model_ready_tree.csv"
-SCALED_INPUT = REPO_ROOT / "data" / "model_ready_scaled.csv"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DATA_DIR = REPO_ROOT / "data"
+TREE_INPUT = DATA_DIR / "model_ready_tree.csv"
+SCALED_INPUT = DATA_DIR / "model_ready_scaled.csv"
 
 TARGET_COLS = [
     "survive_after_5",
@@ -214,13 +215,13 @@ def main():
 
     make_selected_file(
         input_path=TREE_INPUT,
-        output_path="model_ready_tree_all_valid.csv",
+        output_path=DATA_DIR / "model_ready_tree_all_valid.csv",
         selected_features=None
     )
 
     make_selected_file(
         input_path=SCALED_INPUT,
-        output_path="model_ready_scaled_all_valid.csv",
+        output_path=DATA_DIR / "model_ready_scaled_all_valid.csv",
         selected_features=None
     )
 
@@ -230,13 +231,13 @@ def main():
 
     make_selected_file(
         input_path=TREE_INPUT,
-        output_path="model_ready_tree_chart_selected.csv",
+        output_path=DATA_DIR / "model_ready_tree_chart_selected.csv",
         selected_features=CHART_SELECTED_FEATURES
     )
 
     make_selected_file(
         input_path=SCALED_INPUT,
-        output_path="model_ready_scaled_chart_selected.csv",
+        output_path=DATA_DIR / "model_ready_scaled_chart_selected.csv",
         selected_features=CHART_SELECTED_FEATURES
     )
 
@@ -246,13 +247,13 @@ def main():
 
     make_selected_file(
         input_path=TREE_INPUT,
-        output_path="model_ready_tree_clinical_selected.csv",
+        output_path=DATA_DIR / "model_ready_tree_clinical_selected.csv",
         selected_features=CLINICAL_SELECTED_FEATURES
     )
 
     make_selected_file(
         input_path=SCALED_INPUT,
-        output_path="model_ready_scaled_clinical_selected.csv",
+        output_path=DATA_DIR / "model_ready_scaled_clinical_selected.csv",
         selected_features=CLINICAL_SELECTED_FEATURES
     )
 

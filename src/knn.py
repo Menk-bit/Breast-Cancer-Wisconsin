@@ -6,18 +6,14 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from sklearn.model_selection import train_test_split
 from sklearn.neighbors import KNeighborsClassifier
-from sklearn.metrics import (
-    accuracy_score,
-    precision_score,
-    recall_score,
-    f1_score,
-    roc_auc_score,
-    confusion_matrix,
-    classification_report,
-)
+from sklearn.metrics import confusion_matrix
 
+from data_splitting import (
+    stratified_sample,
+    stratified_train_validation_test_split,
+)
+from metrics_utils import evaluate_scores, select_threshold
 
 # =========================================================
 # CONFIG
@@ -42,14 +38,10 @@ LEAKAGE_COLS = [
     "survival_months_unknown_flag",
 ]
 
-OUTPUT_DIR = Path("knn_outputs")
+OUTPUT_DIR = REPO_ROOT / "knn_outputs"
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 RANDOM_STATE = 42
-
-TEST_SIZE = 0.2
-VAL_SIZE = 0.25
-# train = 60%, validation = 20%, test = 20%
 
 K_VALUES = [3, 5, 7, 9, 11, 15]
 
@@ -99,41 +91,6 @@ def load_dataset(path: Path):
     return X, y, feature_names
 
 
-def split_data(X, y):
-    X_train_val, X_test, y_train_val, y_test = train_test_split(
-        X,
-        y,
-        test_size=TEST_SIZE,
-        random_state=RANDOM_STATE,
-        stratify=y
-    )
-
-    X_train, X_val, y_train, y_val = train_test_split(
-        X_train_val,
-        y_train_val,
-        test_size=VAL_SIZE,
-        random_state=RANDOM_STATE,
-        stratify=y_train_val
-    )
-
-    return X_train, X_val, X_test, y_train, y_val, y_test, X_train_val, y_train_val
-
-
-def stratified_sample(X, y, max_rows):
-    if max_rows is None or len(X) <= max_rows:
-        return X, y
-
-    X_sample, _, y_sample, _ = train_test_split(
-        X,
-        y,
-        train_size=max_rows,
-        random_state=RANDOM_STATE,
-        stratify=y
-    )
-
-    return X_sample, y_sample
-
-
 def to_numpy_float32(X):
     return X.values.astype(np.float32)
 
@@ -141,42 +98,6 @@ def to_numpy_float32(X):
 # =========================================================
 # METRICS
 # =========================================================
-
-def evaluate_predictions(y_true, y_prob, threshold):
-    y_pred = (y_prob >= threshold).astype(int)
-
-    return {
-        "threshold": threshold,
-        "accuracy": accuracy_score(y_true, y_pred),
-        "precision_dead": precision_score(y_true, y_pred, zero_division=0),
-        "recall_dead": recall_score(y_true, y_pred, zero_division=0),
-        "f1_dead": f1_score(y_true, y_pred, zero_division=0),
-        "roc_auc": roc_auc_score(y_true, y_prob),
-    }
-
-
-def tune_threshold(y_val, y_val_prob):
-    rows = []
-
-    for threshold in THRESHOLDS:
-        metrics = evaluate_predictions(
-            y_true=y_val,
-            y_prob=y_val_prob,
-            threshold=threshold
-        )
-        rows.append(metrics)
-
-    threshold_df = pd.DataFrame(rows)
-
-    threshold_df = threshold_df.sort_values(
-        ["f1_dead", "recall_dead", "roc_auc"],
-        ascending=False
-    )
-
-    best_threshold = float(threshold_df.iloc[0]["threshold"])
-
-    return best_threshold, threshold_df
-
 
 # =========================================================
 # KNN MODEL
@@ -242,25 +163,22 @@ def run_hyperparameter_search(X_train, y_train, X_val, y_val):
                 y_train_prob = model.predict_proba(X_train_np)[:, 1]
                 y_val_prob = model.predict_proba(X_val_np)[:, 1]
 
-                best_threshold, threshold_df = tune_threshold(
-                    y_val=y_val_np,
-                    y_val_prob=y_val_prob
-                )
-
-                train_metrics = evaluate_predictions(
-                    y_true=y_train_np,
-                    y_prob=y_train_prob,
-                    threshold=best_threshold
-                )
-
-                val_metrics = evaluate_predictions(
+                best_threshold, threshold_df = select_threshold(
                     y_true=y_val_np,
-                    y_prob=y_val_prob,
-                    threshold=best_threshold
+                    y_score=y_val_prob,
+                    thresholds=THRESHOLDS,
+                )
+
+                train_metrics, _ = evaluate_scores(
+                    y_train_np, y_train_prob, best_threshold
+                )
+
+                val_metrics, _ = evaluate_scores(
+                    y_val_np, y_val_prob, best_threshold
                 )
 
                 train_val_f1_gap = abs(
-                    train_metrics["f1_dead"] - val_metrics["f1_dead"]
+                    train_metrics["f1_class_1"] - val_metrics["f1_class_1"]
                 )
 
                 row = {
@@ -273,15 +191,21 @@ def run_hyperparameter_search(X_train, y_train, X_val, y_val):
                     "best_threshold": best_threshold,
 
                     "train_accuracy": train_metrics["accuracy"],
-                    "train_precision_dead": train_metrics["precision_dead"],
-                    "train_recall_dead": train_metrics["recall_dead"],
-                    "train_f1_dead": train_metrics["f1_dead"],
+                    "train_precision_class_0": train_metrics["precision_class_0"],
+                    "train_precision_class_1": train_metrics["precision_class_1"],
+                    "train_recall_class_0": train_metrics["recall_class_0"],
+                    "train_recall_class_1": train_metrics["recall_class_1"],
+                    "train_f1_class_0": train_metrics["f1_class_0"],
+                    "train_f1_class_1": train_metrics["f1_class_1"],
                     "train_roc_auc": train_metrics["roc_auc"],
 
                     "val_accuracy": val_metrics["accuracy"],
-                    "val_precision_dead": val_metrics["precision_dead"],
-                    "val_recall_dead": val_metrics["recall_dead"],
-                    "val_f1_dead": val_metrics["f1_dead"],
+                    "val_precision_class_0": val_metrics["precision_class_0"],
+                    "val_precision_class_1": val_metrics["precision_class_1"],
+                    "val_recall_class_0": val_metrics["recall_class_0"],
+                    "val_recall_class_1": val_metrics["recall_class_1"],
+                    "val_f1_class_0": val_metrics["f1_class_0"],
+                    "val_f1_class_1": val_metrics["f1_class_1"],
                     "val_roc_auc": val_metrics["roc_auc"],
 
                     "train_val_f1_gap": train_val_f1_gap,
@@ -293,8 +217,8 @@ def run_hyperparameter_search(X_train, y_train, X_val, y_val):
                 print(
                     f"Config {config_id:02d} | "
                     f"k={k}, weights={weights}, metric={metric_name} | "
-                    f"val_f1={val_metrics['f1_dead']:.4f}, "
-                    f"val_recall={val_metrics['recall_dead']:.4f}, "
+                    f"val_f1={val_metrics['f1_class_1']:.4f}, "
+                    f"val_recall={val_metrics['recall_class_1']:.4f}, "
                     f"val_auc={val_metrics['roc_auc']:.4f}, "
                     f"gap={train_val_f1_gap:.4f}"
                 )
@@ -302,7 +226,12 @@ def run_hyperparameter_search(X_train, y_train, X_val, y_val):
     tuning_df = pd.DataFrame(tuning_rows)
 
     tuning_df = tuning_df.sort_values(
-        ["val_f1_dead", "val_recall_dead", "val_roc_auc", "train_val_f1_gap"],
+        [
+            "val_f1_class_1",
+            "val_recall_class_1",
+            "val_roc_auc",
+            "train_val_f1_gap",
+        ],
         ascending=[False, False, False, True]
     )
 
@@ -315,11 +244,12 @@ def run_hyperparameter_search(X_train, y_train, X_val, y_val):
 # FINAL TEST
 # =========================================================
 
-def final_evaluate_best_model(best_row, X_train_val, y_train_val, X_test, y_test):
+def final_evaluate_best_model(best_row, X_train, y_train, X_test, y_test):
     X_final_train, y_final_train = stratified_sample(
-        X_train_val,
-        y_train_val,
-        MAX_FINAL_TRAIN_ROWS
+        X_train,
+        y_train,
+        MAX_FINAL_TRAIN_ROWS,
+        RANDOM_STATE,
     )
 
     X_final_np = to_numpy_float32(X_final_train)
@@ -339,12 +269,8 @@ def final_evaluate_best_model(best_row, X_train_val, y_train_val, X_test, y_test
 
     y_test_prob = model.predict_proba(X_test_np)[:, 1]
     threshold = float(best_row["best_threshold"])
-    y_test_pred = (y_test_prob >= threshold).astype(int)
-
-    test_metrics = evaluate_predictions(
-        y_true=y_test_np,
-        y_prob=y_test_prob,
-        threshold=threshold
+    test_metrics, y_test_pred = evaluate_scores(
+        y_test_np, y_test_prob, threshold
     )
 
     return model, test_metrics, y_test_pred, y_test_prob, y_test_np
@@ -362,14 +288,14 @@ def plot_validation_curve(tuning_df, output_path):
     sns.lineplot(
         data=plot_df,
         x="k",
-        y="val_f1_dead",
+        y="val_f1_class_1",
         hue="setting",
         marker="o"
     )
 
     plt.title("KNN validation F1-score by k")
     plt.xlabel("Number of neighbors k")
-    plt.ylabel("Validation F1-score for Dead")
+    plt.ylabel("Validation F1-score for Class 1")
     plt.tight_layout()
     plt.savefig(output_path, dpi=300)
     plt.close()
@@ -402,21 +328,21 @@ def plot_threshold_tuning(threshold_df, output_path):
     plt.figure(figsize=(8, 5))
     plt.plot(
         plot_df["threshold"],
-        plot_df["precision_dead"],
+        plot_df["precision_class_1"],
         marker="o",
-        label="Precision Dead"
+        label="Precision Class 1"
     )
     plt.plot(
         plot_df["threshold"],
-        plot_df["recall_dead"],
+        plot_df["recall_class_1"],
         marker="o",
-        label="Recall Dead"
+        label="Recall Class 1"
     )
     plt.plot(
         plot_df["threshold"],
-        plot_df["f1_dead"],
+        plot_df["f1_class_1"],
         marker="o",
-        label="F1 Dead"
+        label="F1 Class 1"
     )
 
     plt.title("KNN threshold tuning on validation set")
@@ -437,8 +363,8 @@ def plot_confusion_matrix(y_true, y_pred, output_path):
         annot=True,
         fmt="d",
         cmap="Blues",
-        xticklabels=["Pred Alive", "Pred Dead"],
-        yticklabels=["True Alive", "True Dead"]
+        xticklabels=["Pred Class 0", "Pred Class 1"],
+        yticklabels=["True Class 0", "True Class 1"]
     )
 
     plt.title("KNN Confusion Matrix")
@@ -464,16 +390,8 @@ def main():
 
     X, y, feature_names = load_dataset(input_path)
 
-    (
-        X_train,
-        X_val,
-        X_test,
-        y_train,
-        y_val,
-        y_test,
-        X_train_val,
-        y_train_val
-    ) = split_data(X, y)
+    split = stratified_train_validation_test_split(X, y, RANDOM_STATE)
+    X_train, X_val, X_test, y_train, y_val, y_test = split
 
     print("\nData split:")
     print(f"- Train:      {X_train.shape}")
@@ -481,9 +399,9 @@ def main():
     print(f"- Test:       {X_test.shape}")
 
     print("\nClass distribution:")
-    print(f"- Train Dead ratio:      {y_train.mean():.4f}")
-    print(f"- Validation Dead ratio: {y_val.mean():.4f}")
-    print(f"- Test Dead ratio:       {y_test.mean():.4f}")
+    print(f"- Train Class 1 ratio:      {y_train.mean():.4f}")
+    print(f"- Validation Class 1 ratio: {y_val.mean():.4f}")
+    print(f"- Test Class 1 ratio:       {y_test.mean():.4f}")
 
     print("\nRunning hyperparameter search...")
     tuning_df, threshold_store, best_config_id = run_hyperparameter_search(
@@ -515,8 +433,8 @@ def main():
         y_test_np
     ) = final_evaluate_best_model(
         best_row=best_row,
-        X_train_val=X_train_val,
-        y_train_val=y_train_val,
+        X_train=X_train,
+        y_train=y_train,
         X_test=X_test,
         y_test=y_test
     )
@@ -525,28 +443,11 @@ def main():
     test_metrics_path = OUTPUT_DIR / f"{DATASET_NAME}_test_metrics.csv"
     test_metrics_df.to_csv(test_metrics_path, index=False, encoding="utf-8-sig")
 
-    report_path = OUTPUT_DIR / f"{DATASET_NAME}_classification_report.txt"
-    with open(report_path, "w", encoding="utf-8") as f:
-        f.write(classification_report(
-            y_test_np,
-            y_test_pred,
-            target_names=["Alive", "Dead"],
-            zero_division=0
-        ))
-
     print("\n" + "=" * 100)
     print("FINAL TEST METRICS")
     print("=" * 100)
     for key, value in test_metrics.items():
         print(f"{key}: {value:.4f}" if isinstance(value, float) else f"{key}: {value}")
-
-    print("\nClassification report:")
-    print(classification_report(
-        y_test_np,
-        y_test_pred,
-        target_names=["Alive", "Dead"],
-        zero_division=0
-    ))
 
     plot_validation_curve(
         tuning_df,
@@ -574,7 +475,6 @@ def main():
     print("=" * 100)
     print(f"- {tuning_path}")
     print(f"- {test_metrics_path}")
-    print(f"- {report_path}")
     print(f"- {OUTPUT_DIR / f'{DATASET_NAME}_validation_curve_f1.png'}")
     print(f"- {OUTPUT_DIR / f'{DATASET_NAME}_train_val_gap.png'}")
     print(f"- {OUTPUT_DIR / f'{DATASET_NAME}_threshold_tuning.png'}")

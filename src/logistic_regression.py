@@ -6,17 +6,10 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import (
-    accuracy_score,
-    precision_score,
-    recall_score,
-    f1_score,
-    roc_auc_score,
-    confusion_matrix,
-    classification_report,
-)
+from sklearn.metrics import confusion_matrix
 
+from data_splitting import stratified_train_validation_test_split
+from metrics_utils import evaluate_scores, select_threshold
 
 # =========================================================
 # CONFIG
@@ -41,8 +34,6 @@ LEAKAGE_COLS = [
 
 RANDOM_STATE = 42
 
-TEST_SIZE = 0.2
-VAL_SIZE = 0.25
 # 0.25 của phần train_val tương đương:
 # train = 60%, validation = 20%, test = 20%
 
@@ -55,7 +46,7 @@ LAMBDA_L2_VALUES = [0.0, 0.001, 0.01]
 USE_CLASS_WEIGHT_VALUES = [False, True]
 THRESHOLDS = [0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60]
 
-OUTPUT_DIR = Path("logistic_outputs")
+OUTPUT_DIR = REPO_ROOT / "logistic_outputs"
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 
@@ -75,26 +66,6 @@ def load_dataset(path):
     X = X.values.astype(float)
 
     return X, y, feature_names
-
-
-def split_data(X, y):
-    X_train_val, X_test, y_train_val, y_test = train_test_split(
-        X,
-        y,
-        test_size=TEST_SIZE,
-        random_state=RANDOM_STATE,
-        stratify=y
-    )
-
-    X_train, X_val, y_train, y_val = train_test_split(
-        X_train_val,
-        y_train_val,
-        test_size=VAL_SIZE,
-        random_state=RANDOM_STATE,
-        stratify=y_train_val
-    )
-
-    return X_train, X_val, X_test, y_train, y_val, y_test
 
 
 # =========================================================
@@ -253,44 +224,8 @@ def predict_label(X, w, b, threshold):
     return (prob >= threshold).astype(int)
 
 
-def evaluate_predictions(y_true, y_prob, threshold):
-    y_pred = (y_prob >= threshold).astype(int)
-
-    result = {
-        "threshold": threshold,
-        "accuracy": accuracy_score(y_true, y_pred),
-        "precision_dead": precision_score(y_true, y_pred, zero_division=0),
-        "recall_dead": recall_score(y_true, y_pred, zero_division=0),
-        "f1_dead": f1_score(y_true, y_pred, zero_division=0),
-        "roc_auc": roc_auc_score(y_true, y_prob),
-    }
-
-    return result
-
-
 def tune_threshold(y_val, y_val_prob):
-    rows = []
-
-    for threshold in THRESHOLDS:
-        metrics = evaluate_predictions(
-            y_true=y_val,
-            y_prob=y_val_prob,
-            threshold=threshold
-        )
-        rows.append(metrics)
-
-    threshold_df = pd.DataFrame(rows)
-
-    # Ưu tiên F1 cho class Dead.
-    # Nếu muốn ưu tiên giảm FN hơn nữa, có thể đổi sang recall_dead.
-    threshold_df = threshold_df.sort_values(
-        ["f1_dead", "recall_dead", "roc_auc"],
-        ascending=False
-    )
-
-    best_threshold = float(threshold_df.iloc[0]["threshold"])
-
-    return best_threshold, threshold_df
+    return select_threshold(y_val, y_val_prob, THRESHOLDS)
 
 
 # =========================================================
@@ -322,8 +257,8 @@ def plot_confusion_matrix(y_true, y_pred, output_path):
         annot=True,
         fmt="d",
         cmap="Blues",
-        xticklabels=["Pred Alive", "Pred Dead"],
-        yticklabels=["True Alive", "True Dead"]
+        xticklabels=["Pred Class 0", "Pred Class 1"],
+        yticklabels=["True Class 0", "True Class 1"]
     )
 
     plt.title("Confusion Matrix")
@@ -338,9 +273,24 @@ def plot_threshold_tuning(threshold_df, output_path):
     plot_df = threshold_df.sort_values("threshold")
 
     plt.figure(figsize=(8, 5))
-    plt.plot(plot_df["threshold"], plot_df["precision_dead"], marker="o", label="Precision Dead")
-    plt.plot(plot_df["threshold"], plot_df["recall_dead"], marker="o", label="Recall Dead")
-    plt.plot(plot_df["threshold"], plot_df["f1_dead"], marker="o", label="F1 Dead")
+    plt.plot(
+        plot_df["threshold"],
+        plot_df["precision_class_1"],
+        marker="o",
+        label="Precision Class 1",
+    )
+    plt.plot(
+        plot_df["threshold"],
+        plot_df["recall_class_1"],
+        marker="o",
+        label="Recall Class 1",
+    )
+    plt.plot(
+        plot_df["threshold"],
+        plot_df["f1_class_1"],
+        marker="o",
+        label="F1 Class 1",
+    )
 
     plt.title("Threshold tuning on validation set")
     plt.xlabel("Threshold")
@@ -394,10 +344,8 @@ def run_hyperparameter_search(X_train, X_val, y_train, y_val):
                     y_val_prob=y_val_prob
                 )
 
-                val_metrics = evaluate_predictions(
-                    y_true=y_val,
-                    y_prob=y_val_prob,
-                    threshold=best_threshold
+                val_metrics, _ = evaluate_scores(
+                    y_val, y_val_prob, best_threshold
                 )
 
                 row = {
@@ -424,8 +372,8 @@ def run_hyperparameter_search(X_train, X_val, y_train, y_val):
                 print(
                     f"Config {config_id:02d} | "
                     f"lr={lr}, l2={lambda_l2}, class_weight={use_class_weight} | "
-                    f"val_f1={val_metrics['f1_dead']:.4f}, "
-                    f"val_recall={val_metrics['recall_dead']:.4f}, "
+                    f"val_f1={val_metrics['f1_class_1']:.4f}, "
+                    f"val_recall={val_metrics['recall_class_1']:.4f}, "
                     f"val_auc={val_metrics['roc_auc']:.4f}, "
                     f"epochs={len(history['epoch'])}"
                 )
@@ -433,7 +381,7 @@ def run_hyperparameter_search(X_train, X_val, y_train, y_val):
     tuning_df = pd.DataFrame(tuning_rows)
 
     tuning_df = tuning_df.sort_values(
-        ["f1_dead", "recall_dead", "roc_auc"],
+        ["f1_class_1", "recall_class_1", "roc_auc"],
         ascending=False
     )
 
@@ -457,7 +405,8 @@ def main():
 
     X, y, feature_names = load_dataset(input_path)
 
-    X_train, X_val, X_test, y_train, y_val, y_test = split_data(X, y)
+    split = stratified_train_validation_test_split(X, y, RANDOM_STATE)
+    X_train, X_val, X_test, y_train, y_val, y_test = split
 
     print("\nData split:")
     print(f"- Train:      {X_train.shape}")
@@ -465,9 +414,9 @@ def main():
     print(f"- Test:       {X_test.shape}")
 
     print("\nClass distribution:")
-    print(f"- Train Dead ratio:      {y_train.mean():.4f}")
-    print(f"- Validation Dead ratio: {y_val.mean():.4f}")
-    print(f"- Test Dead ratio:       {y_test.mean():.4f}")
+    print(f"- Train Class 1 ratio:      {y_train.mean():.4f}")
+    print(f"- Validation Class 1 ratio: {y_val.mean():.4f}")
+    print(f"- Test Class 1 ratio:       {y_test.mean():.4f}")
 
     print("\nRunning hyperparameter search...")
     tuning_df, model_store, best_config_id = run_hyperparameter_search(
@@ -495,12 +444,8 @@ def main():
 
     # Final evaluation on test set
     y_test_prob = predict_proba(X_test, best_w, best_b)
-    y_test_pred = (y_test_prob >= best_threshold).astype(int)
-
-    test_metrics = evaluate_predictions(
-        y_true=y_test,
-        y_prob=y_test_prob,
-        threshold=best_threshold
+    test_metrics, y_test_pred = evaluate_scores(
+        y_test, y_test_prob, best_threshold
     )
 
     test_metrics_df = pd.DataFrame([test_metrics])
@@ -512,14 +457,6 @@ def main():
     print("=" * 100)
     for key, value in test_metrics.items():
         print(f"{key}: {value:.4f}" if isinstance(value, float) else f"{key}: {value}")
-
-    print("\nClassification report:")
-    print(classification_report(
-        y_test,
-        y_test_pred,
-        target_names=["Alive", "Dead"],
-        zero_division=0
-    ))
 
     # Save plots
     plot_loss_curve(

@@ -1,6 +1,7 @@
 # IT3190E-ML-PROJECT2025.2
 
-This assembled branch combines the unrelated `main` and `master` histories:
+This branch combines the original project histories and keeps all Python source
+code in `src/`.
 
 - `main`: preprocessing, KNN, logistic regression, linear regression, and
   Naive Bayes work.
@@ -17,23 +18,48 @@ The repository uses the existing files in `data/`:
 The data directory is intentionally ignored by Git so these large local files
 are not replaced or committed during branch assembly.
 
-The newer KNN and logistic scripts use `model_ready_scaled.csv`. The SVM
-experiment suites select either the scaled or tree-ready file as appropriate.
-The original `KNN/` and `Logistic/` folders are retained as legacy Wisconsin
-dataset implementations; use `KNN new/` and `Logistic new/` for the root SEER
-dataset.
+The model scripts use the scaled or tree-ready file as appropriate.
+
+## Shared Method
+
+All model runners use:
+
+- `src/data_splitting.py` for stratified 60% train, 20% validation, and 20%
+  test splits.
+- `src/metrics_utils.py` for Accuracy, Precision Class 0, Precision Class 1,
+  Recall Class 0, Recall Class 1, F1 Class 0, F1 Class 1, and ROC AUC.
+
+The test set is used only for final evaluation. Validation data selects model
+settings and classification thresholds.
+
+## Model Commands
+
+```powershell
+python src/knn.py
+python src/logistic_regression.py
+python src/lr_naive_bayes.py
+python src/seer_compact_two_custom_svm_vs_sklearn.py
+python src/tree_ensemble_models.py
+```
+
+## Preprocessing
+
+Preprocessing code is grouped under `src/preprocess/`:
+
+```powershell
+python src/preprocess/clean.py
+python src/preprocess/encode.py
+python src/preprocess/feature_selection.py
+python src/preprocess/selected.py
+```
 
 ## Random Forest and XGBoost
 
 Train and evaluate both tree ensemble models on the local tree-ready dataset:
 
-```powershell
-python src/tree_ensemble_models.py
-```
-
-The command uses stratified train, validation, and test sets. It writes model
-files, metrics, classification reports, test predictions, and feature
-importance tables to `tree_ensemble_outputs/`.
+The tree ensemble command writes models, standard metrics, test predictions,
+validation threshold results, and feature importance tables to
+`tree_ensemble_outputs/`.
 
 For a faster smoke run:
 

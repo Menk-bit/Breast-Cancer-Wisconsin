@@ -1,8 +1,9 @@
 import csv
 from pathlib import Path
 
-INPUT_PATH = Path("/Users/minhdt/Desktop/ML Breast/Preprocess/export.csv")
-OUTPUT_PATH = Path("/Users/minhdt/Desktop/ML Breast/Preprocess/export_alive_>120.csv")
+REPO_ROOT = Path(__file__).resolve().parents[2]
+INPUT_PATH = REPO_ROOT / "data" / "export.csv"
+OUTPUT_PATH = REPO_ROOT / "data" / "export_alive_over_120.csv"
 
 VITAL_STATUS_COL = "Vital status recode (study cutoff used)"
 SURVIVAL_MONTHS_COL = "Survival months"

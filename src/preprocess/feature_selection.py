@@ -16,11 +16,11 @@ from sklearn.ensemble import RandomForestClassifier
 # CONFIG
 # =========================================================
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 TREE_FILE = REPO_ROOT / "data" / "model_ready_tree.csv"
 SCALED_FILE = REPO_ROOT / "data" / "model_ready_scaled.csv"
 
-OUTPUT_DIR = Path("feature_selection_outputs")
+OUTPUT_DIR = REPO_ROOT / "feature_selection_outputs"
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 TARGET_COL = "survive_after_5"

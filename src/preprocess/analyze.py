@@ -2,12 +2,13 @@ from pathlib import Path
 
 import pandas as pd
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # =========================
 # CONFIG
 # =========================
 
-CSV_PATH = Path("/Users/minhdt/Desktop/ML Breast/export_demo.csv")
+CSV_PATH = REPO_ROOT / "data" / "preprocessed_breast_cancer.csv"
 
 # Nếu file của bạn đang tên export.csv như trong ảnh thì đổi dòng trên thành:
 # CSV_PATH = Path("export.csv")

@@ -1,5 +1,5 @@
 """
-preprocess.py
+clean.py
 
 Clinical preprocessing for SEER-like breast cancer registry data.
 
@@ -31,16 +31,20 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DATA_DIR = REPO_ROOT / "data"
 
 # ============================================================
 # CONFIG
 # ============================================================
 
 INPUT_CANDIDATES = [
-    Path("/Users/minhdt/Desktop/ML Breast/Preprocess/final_demo.csv"),
+    DATA_DIR / "final_demo.csv",
+    DATA_DIR / "export_demo.csv",
+    DATA_DIR / "export.csv",
 ]
 
-OUTPUT_PATH = Path("preprocessed_breast_cancer.csv")
+OUTPUT_PATH = DATA_DIR / "preprocessed_breast_cancer.csv"
 
 
 RAW_TO_CLEAN_COLUMNS = {

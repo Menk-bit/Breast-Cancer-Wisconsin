@@ -28,27 +28,39 @@ import pandas as pd
 
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.kernel_approximation import RBFSampler
-from sklearn.metrics import accuracy_score, average_precision_score, balanced_accuracy_score, classification_report, confusion_matrix, f1_score, matthews_corrcoef, precision_recall_curve, precision_score, recall_score, roc_auc_score, roc_curve
-from sklearn.model_selection import ParameterGrid, ParameterSampler, train_test_split
+from sklearn.metrics import (
+    roc_curve,
+)
+from sklearn.model_selection import ParameterGrid, ParameterSampler
 from sklearn.preprocessing import StandardScaler
 from sklearn.svm import LinearSVC
 from sklearn.utils.class_weight import compute_class_weight
 from sklearn.utils.validation import check_is_fitted
 
+from data_splitting import (
+    stratified_sample,
+    stratified_train_validation_test_split,
+    stratified_two_way_split,
+)
+from metrics_utils import (
+    binary_classification_metrics,
+    maximum_f1_threshold,
+    roc_auc,
+)
+
 warnings.filterwarnings("ignore")
 
 
 # Paths
-DATA_PATH = "./data/model_ready_scaled.csv"
-OUTPUT_DIR = Path("./seer_two_custom_svm_outputs")
+REPO_ROOT = Path(__file__).resolve().parents[1]
+DATA_PATH = str(REPO_ROOT / "data" / "model_ready_scaled.csv")
+OUTPUT_DIR = REPO_ROOT / "seer_two_custom_svm_outputs"
 TARGET_COLUMN = "survive_after_5"
 EXCLUDE_COLUMNS: list[str] = []
 
 # Split
 RANDOM_STATE = 42
-TEST_SIZE = 0.20
-META_FRACTION = 0.10
-THRESHOLD_FRACTION = 0.10
+META_TRAIN_FRACTION = 0.10
 
 # Search
 SEARCH_METHOD = "random" 
@@ -137,7 +149,7 @@ def stratified_indices(y: np.ndarray, max_samples: int, random_state: int) -> np
     if len(y) <= max_samples:
         return np.arange(len(y))
     indices = np.arange(len(y))
-    selected, _ = train_test_split(indices, train_size=max_samples, stratify=y, random_state=random_state)
+    selected, _ = stratified_sample(indices, y, max_samples, random_state)
     return np.asarray(selected)
 
 def normalize(values: np.ndarray) -> np.ndarray:
@@ -191,19 +203,24 @@ def load_data(filepath: str) -> tuple[np.ndarray, np.ndarray, list[str]]:
     return X, y, features.columns.tolist()
 
 def split_roles(X: np.ndarray, y: np.ndarray):
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=TEST_SIZE, stratify=y, random_state=RANDOM_STATE)
-    X_remaining, X_threshold, y_remaining, y_threshold = train_test_split(X_train, y_train, test_size=THRESHOLD_FRACTION, stratify=y_train, random_state=RANDOM_STATE + 1)
-    meta_ratio = META_FRACTION / (1.0 - THRESHOLD_FRACTION)
-    X_base, X_meta, y_base, y_meta = train_test_split(X_remaining, y_remaining, test_size=meta_ratio, stratify=y_remaining, random_state=RANDOM_STATE + 2)
-    return X_base, X_meta, X_threshold, X_test, y_base, y_meta, y_threshold, y_test
-
-def max_f1_threshold(y_true: np.ndarray, scores: np.ndarray, positive_class: Any) -> dict[str, Any]:
-    y_binary = (np.asarray(y_true) == positive_class).astype(int)
-    precision, recall, thresholds = precision_recall_curve(y_binary, scores)
-    precision, recall = precision[:-1], recall[:-1]
-    f1 = 2.0 * precision * recall / (precision + recall + 1e-12)
-    index = int(np.nanargmax(f1))
-    return {"threshold": float(thresholds[index]), "precision": float(precision[index]), "recall": float(recall[index]), "f1": float(f1[index]), "curve": pd.DataFrame({"threshold": thresholds, "precision": precision, "recall": recall, "f1": f1})}
+    split = stratified_train_validation_test_split(X, y, RANDOM_STATE)
+    X_train, X_validation, X_test, y_train, y_validation, y_test = split
+    X_base, X_meta, y_base, y_meta = stratified_two_way_split(
+        X_train,
+        y_train,
+        test_size=META_TRAIN_FRACTION,
+        random_state=RANDOM_STATE + 2,
+    )
+    return (
+        X_base,
+        X_meta,
+        X_validation,
+        X_test,
+        y_base,
+        y_meta,
+        y_validation,
+        y_test,
+    )
 
 def search_candidates(grid: dict[str, list[Any]], n_iter: int, random_state: int) -> list[dict[str, Any]]:
     if SEARCH_METHOD == "grid":
@@ -213,14 +230,24 @@ def search_candidates(grid: dict[str, list[Any]], n_iter: int, random_state: int
     raise ValueError("SEARCH_METHOD must be 'grid' or 'random'.")
 
 def search_metrics(y_true: np.ndarray, scores: np.ndarray, positive_class: Any) -> dict[str, float]:
-    threshold = max_f1_threshold(y_true, scores, positive_class)
-    y_binary = (np.asarray(y_true) == positive_class).astype(int)
-    return {"precision": threshold["precision"], "recall": threshold["recall"], "f1": threshold["f1"], "pr_auc": average_precision_score(y_binary, scores), "roc_auc": roc_auc_score(y_binary, scores)}
+    threshold = maximum_f1_threshold(y_true, scores, positive_class)
+    return {
+        "precision": float(threshold["precision"]),
+        "recall": float(threshold["recall"]),
+        "f1": float(threshold["f1"]),
+        "roc_auc": float(threshold["roc_auc"]),
+    }
 
 def better(candidate: dict[str, Any], best: dict[str, Any] | None) -> bool:
     if best is None:
         return True
-    return (round(float(candidate["pr_auc"]), 10), round(float(candidate["f1"]), 10)) > (round(float(best["pr_auc"]), 10), round(float(best["f1"]), 10))
+    return (
+        round(float(candidate["f1"]), 10),
+        round(float(candidate["roc_auc"]), 10),
+    ) > (
+        round(float(best["f1"]), 10),
+        round(float(best["roc_auc"]), 10),
+    )
 
 class SklearnLinearSVC(BaseEstimator, ClassifierMixin):
     def __init__(self, C: float, train_stages: tuple[float, ...], positive_multiplier: float, random_state: int):
@@ -454,7 +481,11 @@ class TwoModelEnsemble(BaseEstimator, ClassifierMixin):
         meta_scores = self.score_matrix(X_meta)
         self.stacker_, self.scaler_, self.search_results_, self.best_params_ = tune_stacker(meta_scores, y_meta, self.random_state)
         threshold_scores = self.scaler_.transform(self.score_matrix(X_threshold)).astype(np.float32)
-        threshold_result = max_f1_threshold(y_threshold, self.stacker_.decision_function(threshold_scores), self.classes_[1])
+        threshold_result = maximum_f1_threshold(
+            y_threshold,
+            self.stacker_.decision_function(threshold_scores),
+            self.classes_[1],
+        )
         self.threshold_ = threshold_result["threshold"]
         self.threshold_precision_ = threshold_result["precision"]
         self.threshold_recall_ = threshold_result["recall"]
@@ -470,7 +501,12 @@ class TwoModelEnsemble(BaseEstimator, ClassifierMixin):
         return self.stacker_.decision_function(scores)
 
 def tune_stacker(meta_scores: np.ndarray, y_meta: np.ndarray, random_state: int):
-    X_train, X_valid, y_train, y_valid = train_test_split(meta_scores, y_meta, test_size=0.25, stratify=y_meta, random_state=random_state)
+    X_train, X_valid, y_train, y_valid = stratified_two_way_split(
+        meta_scores,
+        y_meta,
+        test_size=0.25,
+        random_state=random_state,
+    )
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train).astype(np.float32)
     X_valid_scaled = scaler.transform(X_valid).astype(np.float32)
@@ -500,7 +536,12 @@ def run_search(X_base: np.ndarray, y_base: np.ndarray, output_dir: Path) -> dict
     output_dir.mkdir(parents=True, exist_ok=True)
     indices = stratified_indices(y_base, min(SEARCH_MAX_SAMPLES, len(y_base)), SEARCH_RANDOM_STATE)
     X_sample, y_sample = X_base[indices], y_base[indices]
-    X_train, X_valid, y_train, y_valid = train_test_split(X_sample, y_sample, test_size=SEARCH_VALIDATION_SIZE, stratify=y_sample, random_state=SEARCH_RANDOM_STATE)
+    X_train, X_valid, y_train, y_valid = stratified_two_way_split(
+        X_sample,
+        y_sample,
+        test_size=SEARCH_VALIDATION_SIZE,
+        random_state=SEARCH_RANDOM_STATE,
+    )
     positive_class = np.unique(y_train)[1]
     rows = []
 
@@ -559,10 +600,6 @@ def run_search(X_base: np.ndarray, y_base: np.ndarray, output_dir: Path) -> dict
     print(f"  RBF SGD: gamma={RBF_GAMMA}, components={RBF_COMPONENTS}, reg={RBF_REG}, lr={RBF_LR}, epochs={RBF_EPOCHS}")
     return {"results": results, "selected": pd.DataFrame([best_sklearn, best_linear, best_rbf])}
 
-def specificity(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    matrix = confusion_matrix(y_true, y_pred, labels=[0, 1])
-    return float(matrix[0, 0] / max(matrix[0, 0] + matrix[0, 1], 1))
-
 def save_line(frame: pd.DataFrame, x: str, columns: list[str], title: str, path: Path) -> None:
     plt.figure(figsize=(10, 6))
     for column in columns:
@@ -580,21 +617,6 @@ def save_line(frame: pd.DataFrame, x: str, columns: list[str], title: str, path:
         plt.show()
     plt.close()
 
-def save_confusion(matrix: np.ndarray, title: str, path: Path) -> None:
-    plt.figure(figsize=(6, 5))
-    plt.imshow(matrix)
-    plt.title(title)
-    plt.xlabel("Predicted")
-    plt.ylabel("True")
-    plt.xticks([0, 1], ["0", "1"])
-    plt.yticks([0, 1], ["0", "1"])
-    for row in range(2):
-        for column in range(2):
-            plt.text(column, row, str(int(matrix[row, column])), ha="center", va="center")
-    plt.tight_layout()
-    plt.savefig(path, dpi=200, bbox_inches="tight")
-    plt.close()
-
 def evaluate(name: str, model: Any, X_threshold: np.ndarray, y_threshold: np.ndarray, X_test: np.ndarray, y_test: np.ndarray, output_dir: Path, loss_x: str, loss_columns: list[str]):
     output_dir.mkdir(parents=True, exist_ok=True)
     positive_class = np.unique(y_threshold)[1]
@@ -607,7 +629,11 @@ def evaluate(name: str, model: Any, X_threshold: np.ndarray, y_threshold: np.nda
         validation_f1 = model.threshold_f1_
         threshold_curve = model.threshold_curve_
     else:
-        result = max_f1_threshold(y_threshold, model.decision_function(X_threshold), positive_class)
+        result = maximum_f1_threshold(
+            y_threshold,
+            model.decision_function(X_threshold),
+            positive_class,
+        )
         threshold = result["threshold"]
         validation_precision = result["precision"]
         validation_recall = result["recall"]
@@ -616,41 +642,33 @@ def evaluate(name: str, model: Any, X_threshold: np.ndarray, y_threshold: np.nda
 
     scores = model.decision_function(X_test)
     predictions = np.where(scores >= threshold, positive_class, negative_class)
-    matrix = confusion_matrix(y_test, predictions, labels=[0, 1])
-
     metrics = {
         "experiment": name,
         "threshold": threshold,
         "validation_precision": validation_precision,
         "validation_recall": validation_recall,
         "validation_f1": validation_f1,
-        "accuracy": accuracy_score(y_test, predictions),
-        "precision": precision_score(y_test, predictions, zero_division=0),
-        "recall": recall_score(y_test, predictions, zero_division=0),
-        "f1": f1_score(y_test, predictions, zero_division=0),
-        "macro_f1": f1_score(y_test, predictions, average="macro", zero_division=0),
-        "balanced_accuracy": balanced_accuracy_score(y_test, predictions),
-        "specificity": specificity(y_test, predictions),
-        "mcc": matthews_corrcoef(y_test, predictions),
-        "roc_auc": roc_auc_score(y_test, scores),
-        "pr_auc": average_precision_score(y_test, scores),
+        **binary_classification_metrics(y_test, predictions, scores),
         "training_seconds": float(model.fit_time_),
     }
 
     print("\n" + "-" * 88)
     print(name)
     print("-" * 88)
-    print(classification_report(y_test, predictions, target_names=["Class 0", "Class 1"], zero_division=0))
     print(f"  Validation P/R/F1: {validation_precision:.4f} / {validation_recall:.4f} / {validation_f1:.4f}")
-    print(f"  Test F1: {metrics['f1']:.4f}")
+    print(f"  Test class-1 F1: {metrics['f1_class_1']:.4f}")
     print(f"  ROC-AUC: {metrics['roc_auc']:.4f}")
-    print(f"  PR-AUC: {metrics['pr_auc']:.4f}")
 
     threshold_curve.to_csv(output_dir / "threshold_metrics.csv", index=False)
     model.loss_history_df_.to_csv(output_dir / "loss_history.csv", index=False)
-    save_line(threshold_curve, "threshold", ["precision", "recall", "f1"], f"{name}: threshold metrics", output_dir / "threshold_curve.png")
+    save_line(
+        threshold_curve,
+        "threshold",
+        ["precision_class_1", "recall_class_1", "f1_class_1"],
+        f"{name}: threshold metrics",
+        output_dir / "threshold_curve.png",
+    )
     save_line(model.loss_history_df_, loss_x, loss_columns, f"{name}: loss", output_dir / "loss_curve.png")
-    save_confusion(matrix, f"{name}: confusion matrix", output_dir / "confusion_matrix.png")
 
     if hasattr(model, "coefficients_"):
         model.coefficients_.to_csv(output_dir / "ensemble_coefficients.csv", index=False)
@@ -663,14 +681,22 @@ def export_comparison(rows: list[dict[str, Any]], details: dict[str, dict[str, A
     output_dir.mkdir(parents=True, exist_ok=True)
     frame = pd.DataFrame(rows)
     frame["rank_validation_f1"] = frame["validation_f1"].rank(ascending=False, method="min").astype(int)
-    frame["rank_test_f1"] = frame["f1"].rank(ascending=False, method="min").astype(int)
+    frame["rank_test_f1"] = frame["f1_class_1"].rank(ascending=False, method="min").astype(int)
     frame = frame.sort_values(["rank_validation_f1", "rank_test_f1"])
     frame.to_csv(output_dir / "comparison.csv", index=False)
 
     x = np.arange(len(frame))
     width = 0.16
     plt.figure(figsize=(12, 7))
-    for offset, metric in enumerate(["accuracy", "precision", "recall", "f1", "macro_f1"]):
+    for offset, metric in enumerate(
+        [
+            "accuracy",
+            "precision_class_0",
+            "precision_class_1",
+            "f1_class_0",
+            "f1_class_1",
+        ]
+    ):
         plt.bar(x + (offset - 2) * width, frame[metric], width=width, label=metric)
     plt.xticks(x, frame["experiment"], rotation=20, ha="right")
     plt.ylim(0, 1.05)
@@ -683,22 +709,12 @@ def export_comparison(rows: list[dict[str, Any]], details: dict[str, dict[str, A
     plt.figure(figsize=(8, 7))
     for name, item in details.items():
         fpr, tpr, _ = roc_curve(y_test, item["scores"])
-        plt.plot(fpr, tpr, label=f"{name} ({roc_auc_score(y_test, item['scores']):.4f})")
+        plt.plot(fpr, tpr, label=f"{name} ({roc_auc(y_test, item['scores']):.4f})")
     plt.plot([0, 1], [0, 1], linestyle="--")
     plt.legend(fontsize=8)
     plt.grid(alpha=0.3)
     plt.tight_layout()
     plt.savefig(output_dir / "all_roc_curves.png", dpi=200)
-    plt.close()
-
-    plt.figure(figsize=(8, 7))
-    for name, item in details.items():
-        precision, recall, _ = precision_recall_curve(y_test, item["scores"])
-        plt.plot(recall, precision, label=f"{name} ({average_precision_score(y_test, item['scores']):.4f})")
-    plt.legend(fontsize=8)
-    plt.grid(alpha=0.3)
-    plt.tight_layout()
-    plt.savefig(output_dir / "all_pr_curves.png", dpi=200)
     plt.close()
 
     plt.figure(figsize=(10, 6))
@@ -731,14 +747,24 @@ def main(data_path: str = DATA_PATH, output_dir: str | Path = OUTPUT_DIR, quick_
     total_start = time.time()
 
     X, y, feature_names = load_data(data_path)
-    X_base, X_meta, X_threshold, X_test, y_base, y_meta, y_threshold, y_test = split_roles(X, y)
+    (
+        X_base,
+        X_meta,
+        X_validation,
+        X_test,
+        y_base,
+        y_meta,
+        y_validation,
+        y_test,
+    ) = split_roles(X, y)
 
     print("\n" + "=" * 88)
     print("STEP 2 - SPLIT")
     print("=" * 88)
     print(f"  Base: {X_base.shape}")
     print(f"  Meta: {X_meta.shape}")
-    print(f"  Threshold: {X_threshold.shape}")
+    print(f"  Training total: {len(X_base) + len(X_meta):,} rows (60%)")
+    print(f"  Validation: {X_validation.shape} (20%)")
     print(f"  Test: {X_test.shape}")
 
     search_artifacts = run_search(X_base, y_base, output_dir / "search") if RUN_SEARCH and not quick_test else None
@@ -748,7 +774,7 @@ def main(data_path: str = DATA_PATH, output_dir: str | Path = OUTPUT_DIR, quick_
     print("=" * 88)
 
     sklearn_model = SklearnLinearSVC(C=SKLEARN_C, train_stages=SKLEARN_TRAIN_STAGES, positive_multiplier=POSITIVE_WEIGHT_MULTIPLIER, random_state=RANDOM_STATE)
-    sklearn_model.fit(X_base, y_base, X_threshold, y_threshold)
+    sklearn_model.fit(X_base, y_base, X_validation, y_validation)
 
     linear_model = LinearMiniBatchSGDSVM(regularization=LINEAR_REG, initial_lr=LINEAR_LR, epochs=LINEAR_EPOCHS, batch_size=LINEAR_BATCH_SIZE, positive_multiplier=POSITIVE_WEIGHT_MULTIPLIER, random_state=RANDOM_STATE)
     linear_model.fit(X_base, y_base)
@@ -757,7 +783,7 @@ def main(data_path: str = DATA_PATH, output_dir: str | Path = OUTPUT_DIR, quick_
     rbf_model.fit(X_base, y_base)
 
     ensemble = TwoModelEnsemble(linear_model=linear_model, rbf_model=rbf_model, random_state=RANDOM_STATE + 100)
-    ensemble.fit(X_meta, y_meta, X_threshold, y_threshold)
+    ensemble.fit(X_meta, y_meta, X_validation, y_validation)
 
     experiments = [
         ("sklearn LinearSVC", sklearn_model, "train_size", ["monitor_hinge_loss"]),
@@ -770,7 +796,17 @@ def main(data_path: str = DATA_PATH, output_dir: str | Path = OUTPUT_DIR, quick_
     details = {}
 
     for name, model, loss_x, loss_columns in experiments:
-        metrics, item = evaluate(name, model, X_threshold, y_threshold, X_test, y_test, output_dir / "experiments" / safe_name(name), loss_x, loss_columns)
+        metrics, item = evaluate(
+            name,
+            model,
+            X_validation,
+            y_validation,
+            X_test,
+            y_test,
+            output_dir / "experiments" / safe_name(name),
+            loss_x,
+            loss_columns,
+        )
         rows.append(metrics)
         details[name] = item
 

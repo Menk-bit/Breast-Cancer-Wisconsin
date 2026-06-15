@@ -5,15 +5,17 @@ import pandas as pd
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DATA_DIR = REPO_ROOT / "data"
 
 # =========================================================
 # CONFIG
 # =========================================================
 
-INPUT_PATH = Path("preprocessed_breast_cancer.csv")
+INPUT_PATH = DATA_DIR / "preprocessed_breast_cancer.csv"
 
-OUTPUT_TREE_PATH = Path("model_ready_tree.csv")
-OUTPUT_SCALED_PATH = Path("model_ready_scaled.csv")
+OUTPUT_TREE_PATH = DATA_DIR / "model_ready_tree.csv"
+OUTPUT_SCALED_PATH = DATA_DIR / "model_ready_scaled.csv"
 
 
 # =========================================================
@@ -225,7 +227,7 @@ def select_columns(df: pd.DataFrame):
     if "survive_after_5" not in target_cols:
         raise ValueError(
             "Không tìm thấy target column 'survive_after_5' trong input.\n"
-            "Hãy kiểm tra lại preprocess.py hoặc file preprocessed_breast_cancer.csv."
+            "Hãy kiểm tra lại clean.py hoặc file preprocessed_breast_cancer.csv."
         )
 
     selected_feature_cols = continuous_cols + binary_cols + categorical_cols

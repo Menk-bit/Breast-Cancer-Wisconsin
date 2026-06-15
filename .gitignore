@@ -8,8 +8,11 @@ __pycache__/
 # Datasets are supplied locally in the repository root.
 data/
 
-# Generated preprocessing and experiment artifacts.
-Preprocess/*.csv
+# Generated model and experiment artifacts.
+feature_selection_outputs/
+knn_outputs/
+logistic_outputs/
+lr_naive_bayes_outputs/
 score/
 src/svm.py
 src/svm1.py
@@ -18,6 +21,7 @@ svm_comparison.png
 seer_cvm_sgd_rbf_max_f1_outputs/
 seer_svm_full_experiment_outputs.csv
 tree_ensemble_outputs/
+seer_two_custom_svm_outputs/
 src/seer_loss_outputs/
 src/test.py
 src/neuron_network_new_data.py
