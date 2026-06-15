@@ -1,0 +1,7 @@
+joblib
+kagglehub
+matplotlib
+numpy
+pandas
+scikit-learn
+xgboost
