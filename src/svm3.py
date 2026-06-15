@@ -44,7 +44,7 @@ def stratified_split(df: pd.DataFrame, target_col: str,
     testing_set  = testing_set.sample(frac=1, random_state=random_state).reset_index(drop=True)
 
     print(f"Training size : {training_set.shape[0]}")
-    print(f"Testing  size : {testing_set.shape[0]}")
+    print(f"Testing size : {testing_set.shape[0]}")
     return training_set, testing_set
 
 
