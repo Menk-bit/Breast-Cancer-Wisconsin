@@ -1,19 +1,25 @@
-# Breast Cancer Classification
+# Five-Year Breast Cancer Survival Classification
 
-Five classic machine-learning algorithms evaluated consistently on Kaggle
-dataset `uciml/breast-cancer-wisconsin-data`:
+Seven machine-learning algorithms are evaluated consistently on the
+200,000-row model-ready breast-cancer survival dataset:
 
 - K-nearest neighbors
 - Logistic regression
-- Support vector machine
+- Gradient-descent logistic regression from `LR + NB/v03.ipynb`
+- Gaussian Naive Bayes from `LR + NB/v03.ipynb`
+- Linear SVM trained only with SGD
 - Random Forest
 - XGBoost
 
 ## Consistent Experimental Protocol
 
-`Preprocessing.py` is the only data preparation entry point. It removes the
-identifier and empty column, maps benign/malignant labels to `0/1`, and
-persists one stratified 70/30 train-test split with random seed `42`.
+`src/Preprocessing.py` is the shared data entry point. The binary target is
+`survive_after_5`, where `1` means the patient survived at least five years.
+It creates one deterministic stratified 70/30 split with random seed `42`.
+
+KNN, both logistic implementations, Naive Bayes, and SVM use
+`ML Project - Breast Cancer/data/model_ready_scaled.csv`. Random Forest and
+XGBoost use `ML Project - Breast Cancer/data/model_ready_tree.csv`.
 
 Every algorithm:
 
@@ -21,32 +27,33 @@ Every algorithm:
 2. Runs stratified 5-fold cross-validation only on the training portion.
 3. Selects hyperparameters by recall, then F1, ROC-AUC, and accuracy.
 4. Fits the selected configuration on all training data.
-5. Saves the model, CV table, test metrics, and result plot under `artifacts/`.
+5. Saves the model, CV table, test metrics, and result plot under the root
+   `artifacts/` directory.
 
 The test set is never used for hyperparameter selection.
 
 ## Run
 
 ```powershell
-..\venv\Scripts\python.exe -m pip install -r requirements.txt
-..\venv\Scripts\python.exe Preprocessing.py
-..\venv\Scripts\python.exe RunAll.py --force-train
+venv\Scripts\python.exe -m pip install -r requirements.txt
+venv\Scripts\python.exe src\Preprocessing.py
+venv\Scripts\python.exe src\RunAll.py --force-train
 ```
 
 Later runs load the saved models:
 
 ```powershell
-..\venv\Scripts\python.exe RunAll.py
+venv\Scripts\python.exe src\RunAll.py
 ```
 
 Each model can also be run individually, for example:
 
 ```powershell
-..\venv\Scripts\python.exe SVM.py --force-train
+venv\Scripts\python.exe src\SVM.py --force-train
 ```
 
 Candidate hyperparameter grids are declared near the top of each model script
 for later expansion.
 
-Original implementations extracted from the two unrelated repository histories
-are retained under `legacy/`.
+The incoming `Preprocess/` folder is copied unchanged from the IT3190E
+repository. Unified training code lives under `src/`.

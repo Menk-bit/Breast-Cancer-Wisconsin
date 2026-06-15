@@ -1,0 +1,35 @@
+# Python bytecode and tool caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Jupyter and editor files
+.ipynb_checkpoints/
+.vscode/
+.idea/
+*.code-workspace
+
+# Operating-system files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Generated model outputs
+artifacts/
+
+# Local upstream checkout used as the merge source
+IT3190E-ML-PROJECT2025.2/
+
+# Large archives and intermediate preprocessing output
+*.zip
+ML Project - Breast Cancer/data/preprocessed_breast_cancer.csv
