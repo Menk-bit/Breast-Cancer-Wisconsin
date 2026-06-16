@@ -28,6 +28,9 @@ All model runners use:
   test splits.
 - `src/metrics_utils.py` for Accuracy, Precision Class 0, Precision Class 1,
   Recall Class 0, Recall Class 1, F1 Class 0, F1 Class 1, and ROC AUC.
+- `src/result_reporting.py` for confusion matrix, ROC curve,
+  precision-recall curve, metrics bar chart, SHAP summaries, and LIME
+  explanations.
 
 The test set is used only for final evaluation. Validation data selects model
 settings and classification thresholds.
@@ -58,11 +61,19 @@ python src/preprocess/selected.py
 Train and evaluate both tree ensemble models on the local tree-ready dataset:
 
 The tree ensemble command writes models, standard metrics, test predictions,
-validation threshold results, and feature importance tables to
-`tree_ensemble_outputs/`.
+validation threshold results, result graphs, SHAP/LIME explanations, and
+feature importance tables to `tree_ensemble_outputs/`.
+
+Random Forest searches 100, 200, 300, 400, and 500 trees. XGBoost searches
+200, 400, 600, and 800 estimators. Tree ensemble threshold tuning prioritizes
+`recall_class_0`, then `f1_class_0`, because class 0 is the critical class for
+that workflow.
 
 For a faster smoke run:
 
 ```powershell
-python src/tree_ensemble_models.py --sample-size 20000
+python src/tree_ensemble_models.py --sample-size 20000 --max-configs-per-model 2 --skip-explainability
 ```
+
+Use `--explainability-sample-size 200` to control the SHAP/LIME sample cap.
+The default is 200 rows.

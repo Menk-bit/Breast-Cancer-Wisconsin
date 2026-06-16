@@ -10,6 +10,7 @@ from sklearn.metrics import confusion_matrix
 
 from data_splitting import stratified_train_validation_test_split
 from metrics_utils import evaluate_scores, select_threshold
+from result_reporting import save_explainability_artifacts, save_result_graphs
 
 # =========================================================
 # CONFIG
@@ -480,6 +481,27 @@ def main():
         best_w,
         OUTPUT_DIR / f"{DATASET_NAME}_feature_coefficients.csv"
     )
+    save_result_graphs(
+        y_test,
+        y_test_prob,
+        y_test_pred,
+        test_metrics,
+        OUTPUT_DIR / "result_graphs",
+        "Logistic Regression",
+    )
+
+    def best_predict_proba(rows):
+        class_1 = predict_proba(np.asarray(rows, dtype=float), best_w, best_b)
+        return np.column_stack([1.0 - class_1, class_1])
+
+    save_explainability_artifacts(
+        model_name="Logistic Regression",
+        output_dir=OUTPUT_DIR / "explainability",
+        X_background=pd.DataFrame(X_train, columns=feature_names),
+        X_explain=pd.DataFrame(X_test, columns=feature_names),
+        feature_names=feature_names,
+        predict_proba_fn=best_predict_proba,
+    )
 
     print("\n" + "=" * 100)
     print("OUTPUT FILES")
@@ -490,6 +512,8 @@ def main():
     print(f"- {OUTPUT_DIR / f'{DATASET_NAME}_confusion_matrix.png'}")
     print(f"- {OUTPUT_DIR / f'{DATASET_NAME}_threshold_tuning.png'}")
     print(f"- {OUTPUT_DIR / f'{DATASET_NAME}_feature_coefficients.csv'}")
+    print(f"- {OUTPUT_DIR / 'result_graphs'}")
+    print(f"- {OUTPUT_DIR / 'explainability'}")
 
 
 if __name__ == "__main__":

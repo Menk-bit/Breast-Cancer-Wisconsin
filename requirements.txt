@@ -1,7 +1,9 @@
 joblib
+lime
 matplotlib
 numpy
 pandas
 scikit-learn
 seaborn
+shap
 xgboost

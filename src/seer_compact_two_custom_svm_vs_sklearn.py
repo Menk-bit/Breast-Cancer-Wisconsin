@@ -47,6 +47,7 @@ from metrics_utils import (
     maximum_f1_threshold,
     roc_auc,
 )
+from result_reporting import save_explainability_artifacts, save_result_graphs
 
 warnings.filterwarnings("ignore")
 
@@ -617,7 +618,19 @@ def save_line(frame: pd.DataFrame, x: str, columns: list[str], title: str, path:
         plt.show()
     plt.close()
 
-def evaluate(name: str, model: Any, X_threshold: np.ndarray, y_threshold: np.ndarray, X_test: np.ndarray, y_test: np.ndarray, output_dir: Path, loss_x: str, loss_columns: list[str]):
+def evaluate(
+    name: str,
+    model: Any,
+    X_threshold: np.ndarray,
+    y_threshold: np.ndarray,
+    X_test: np.ndarray,
+    y_test: np.ndarray,
+    output_dir: Path,
+    loss_x: str,
+    loss_columns: list[str],
+    X_background: np.ndarray,
+    feature_names: list[str],
+):
     output_dir.mkdir(parents=True, exist_ok=True)
     positive_class = np.unique(y_threshold)[1]
     negative_class = np.unique(y_threshold)[0]
@@ -669,6 +682,20 @@ def evaluate(name: str, model: Any, X_threshold: np.ndarray, y_threshold: np.nda
         output_dir / "threshold_curve.png",
     )
     save_line(model.loss_history_df_, loss_x, loss_columns, f"{name}: loss", output_dir / "loss_curve.png")
+    save_result_graphs(y_test, scores, predictions, metrics, output_dir, name)
+
+    def predict_proba(rows):
+        class_1 = sigmoid(model.decision_function(np.asarray(rows, dtype=np.float32)))
+        return np.column_stack([1.0 - class_1, class_1])
+
+    save_explainability_artifacts(
+        model_name=name,
+        output_dir=output_dir / "explainability",
+        X_background=X_background,
+        X_explain=X_test,
+        feature_names=feature_names,
+        predict_proba_fn=predict_proba,
+    )
 
     if hasattr(model, "coefficients_"):
         model.coefficients_.to_csv(output_dir / "ensemble_coefficients.csv", index=False)
@@ -806,6 +833,8 @@ def main(data_path: str = DATA_PATH, output_dir: str | Path = OUTPUT_DIR, quick_
             output_dir / "experiments" / safe_name(name),
             loss_x,
             loss_columns,
+            X_base,
+            feature_names,
         )
         rows.append(metrics)
         details[name] = item

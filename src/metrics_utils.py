@@ -138,6 +138,29 @@ def select_threshold(
     return float(frame.iloc[0]["threshold"]), frame.reset_index(drop=True)
 
 
+def select_threshold_for_class_0(
+    y_true: Iterable[int],
+    y_score: Iterable[float],
+    thresholds: Iterable[float] | None = None,
+) -> tuple[float, pd.DataFrame]:
+    """Select a threshold prioritizing class-0 recall, then class-0 F1."""
+    candidates = (
+        np.linspace(0.05, 0.95, 181)
+        if thresholds is None
+        else np.asarray(list(thresholds), dtype=float)
+    )
+    rows = []
+    for threshold in candidates:
+        metrics, _ = evaluate_scores(y_true, y_score, float(threshold))
+        rows.append(metrics)
+
+    frame = pd.DataFrame(rows).sort_values(
+        ["recall_class_0", "f1_class_0", "roc_auc"],
+        ascending=False,
+    )
+    return float(frame.iloc[0]["threshold"]), frame.reset_index(drop=True)
+
+
 def maximum_f1_threshold(
     y_true: Iterable[int],
     y_score: Iterable[float],
